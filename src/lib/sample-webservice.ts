@@ -1,69 +1,86 @@
-import * as aws from "@pulumi/aws";
-import * as awsx from "@pulumi/awsx";
-import * as pulumi from "@pulumi/pulumi";
+import * as aws from '@pulumi/aws'
+import * as awsx from '@pulumi/awsx'
+import * as pulumi from '@pulumi/pulumi'
 
 export class WebService extends pulumi.ComponentResource {
   constructor(
     name: string,
     args: {
-      clusterArn: pulumi.Input<string>;
-      subnetIds: pulumi.Input<string[]>;
-      securityGroupIds: pulumi.Input<string>[];
-      targetGroupArn: pulumi.Input<string>;
+      clusterArn: pulumi.Input<string>
+      subnetIds: pulumi.Input<string[]>
+      securityGroupIds: pulumi.Input<string>[]
+      targetGroupArn: pulumi.Input<string>
     },
-    opts?: pulumi.ComponentResourceOptions
+    opts?: pulumi.ComponentResourceOptions,
   ) {
-    super("swm-sample:lib/sample-webservice/WebService", name, {}, opts);
+    super('swm-sample:lib/sample-webservice/WebService', name, {}, opts)
 
-    const containerName = `${name}-sample-webservice`;
+    const containerName = `${name}-sample-webservice`
 
-    const taskExecutionRole = new aws.iam.Role(
+    const executionRole = new aws.iam.Role(
       `${name}-ecsTaskExecutionRole`,
       {
         assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal(
-          aws.iam.Principals.EcsTasksPrincipal
+          aws.iam.Principals.EcsTasksPrincipal,
         ),
         managedPolicyArns: [
           aws.iam.ManagedPolicy.AmazonECSTaskExecutionRolePolicy,
         ],
       },
-      { parent: this }
-    );
+      { parent: this },
+    )
+
+    const logGroup = new aws.cloudwatch.LogGroup(
+      name,
+      {
+        namePrefix: `/ecs/sample-app/${name}-`,
+        retentionInDays: 7,
+      },
+      { parent: this },
+    )
 
     const task = new aws.ecs.TaskDefinition(
       `${name}-sample-webservice`,
       {
-        containerDefinitions: JSON.stringify([
-          {
-            name: containerName,
-            image: "httpd:2.4",
-            command: `"/bin/sh -c \"echo '<html><head><title>Sample webservice</title><style>body {margin-top: 40px; background-color: #333;}</style></head><body><div style=color:white;text-align:center><h1>Sample Webserver</h1><h2>It works!</h2></div></body></html>' >  /usr/local/apache2/htdocs/index.html && httpd-foreground\""`,
-            essential: true,
-            stopTimeout: 10,
-            portMappings: [
+        containerDefinitions: pulumi
+          .all([logGroup.name, pulumi.output(aws.getRegion())])
+          .apply(([logGroup, region]) =>
+            JSON.stringify([
               {
-                containerPort: 80,
+                name: containerName,
+                image: 'httpd:2.4',
+                command: [
+                  '/bin/sh',
+                  '-c',
+                  "echo '<html><head><title>Sample Webservice!</title><style>body{margin-top:60px;background-color:#ffffff;}</style></head><body><div style=\"color:#202020\"><h1>Sample Webservice!</h1><h2>It works :)</h2></div></body></html>' >  /usr/local/apache2/htdocs/index.html && httpd-foreground",
+                ],
+                essential: true,
+                stopTimeout: 10,
+                portMappings: [
+                  {
+                    containerPort: 80,
+                  },
+                ],
+                logConfiguration: {
+                  logDriver: 'awslogs',
+                  options: {
+                    'awslogs-group': logGroup,
+                    'awslogs-region': region.name,
+                    'awslogs-stream-prefix': containerName,
+                  },
+                },
               },
-            ],
-            logConfiguration: {
-              logDriver: "awslogs",
-              options: {
-                "awslogs-group": `/ecs/sample-app/${name}`,
-                "awslogs-region": "ap-southeast-2",
-                "awslogs-stream-prefix": "ecs",
-              },
-            },
-          },
-        ]),
+            ]),
+          ),
         family: `${name}-sample-webservice`,
-        cpu: "256",
-        memory: "1024",
-        networkMode: "awsvpc",
-        requiresCompatibilities: ["FARGATE"],
-        executionRoleArn: taskExecutionRole.arn,
+        cpu: '256',
+        memory: '1024',
+        networkMode: 'awsvpc',
+        requiresCompatibilities: ['FARGATE'],
+        executionRoleArn: executionRole.arn,
       },
-      { parent: this }
-    );
+      { parent: this },
+    )
 
     new aws.ecs.Service(
       `${name}-sample-webservice`,
@@ -71,7 +88,7 @@ export class WebService extends pulumi.ComponentResource {
         cluster: args.clusterArn,
         taskDefinition: task.arn,
         deploymentController: {
-          type: "ECS",
+          type: 'ECS',
         },
         deploymentCircuitBreaker: {
           enable: true,
@@ -79,7 +96,7 @@ export class WebService extends pulumi.ComponentResource {
         },
         capacityProviderStrategies: [
           {
-            capacityProvider: "FARGATE_SPOT",
+            capacityProvider: 'FARGATE_SPOT',
             weight: 100,
           },
         ],
@@ -93,10 +110,10 @@ export class WebService extends pulumi.ComponentResource {
         ],
         networkConfiguration: {
           subnets: args.subnetIds,
-          securityGroups: args.securityGroupIds,
+          securityGroups: args.securityGroupIds,  
         },
       },
-      { parent: this }
-    );
+      { parent: this },
+    )
   }
 }
